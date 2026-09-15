@@ -1,4 +1,5 @@
 import sqlite3
+import time
 from typing import List
 from fastapi import HTTPException
 from mastery_service.models import (
@@ -12,10 +13,23 @@ from mastery_service.ai_feedback import get_ai_feedback, AIFeedbackError
 
 def process_attempt(db: sqlite3.Connection, student_id: str, request: AttemptRequest) -> AttemptResponse:
     """Handles the business logic and database orchestration for a new attempt."""
-    
 
+    # Validate input BEFORE doing any DB rate-limit checks
     if request.skill_id not in SKILL_IDS:
         raise HTTPException(status_code=400, detail="Invalid skill_id")
+    
+    # 1. Rate Limiting Check (max 30 attempts per student per rolling 24 hours)
+    yesterday = int(time.time()) - (24 * 60 * 60)
+    count_row = db.execute(
+        "SELECT COUNT(*) as c FROM attempts WHERE student_id = ? AND attempted_at >= ?",
+        (student_id, yesterday)
+    ).fetchone()
+    
+    if count_row["c"] >= 30:
+        raise HTTPException(
+            status_code=429, 
+            detail="Rate limit exceeded. You can only make 30 attempts per rolling 24 hours."
+        )
     row = db.execute(
         "SELECT score FROM mastery WHERE student_id = ? AND skill_id = ?",
         (student_id, request.skill_id)
@@ -63,7 +77,7 @@ def get_student_mastery(db: sqlite3.Connection, student_id: str) -> MasteryRespo
     ).fetchall()
     
     items = [MasteryItem(skill_id=row["skill_id"], score=row["score"]) for row in rows]
-    status = "records found" if items else "records not found"
+    status = "Records found" if items else "No records yet"
     
     return MasteryResponse(status=status, data=items)
 
@@ -84,6 +98,6 @@ def get_student_notifications(db: sqlite3.Connection, student_id: str) -> Notifi
         for row in rows
     ]
     
-    status = "records found" if items else "records not found"
+    status = "Records found" if items else "No records yet"
     
     return NotificationResponse(status=status, data=items)
