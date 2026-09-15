@@ -7,9 +7,8 @@ from mastery_service.seed_data import STUDENT_IDS, SKILL_IDS, TEACHER_ROSTERS
 # Store the database file in the mastery_service directory
 DB_PATH = Path(__file__).parent / "mastery.db"
 
-@contextmanager
 def get_db():
-    """Provide a transactional scope around a series of database operations."""
+    """FastAPI Dependency: Provide a transactional scope around database operations."""
     # check_same_thread=False 
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON;")
@@ -23,9 +22,15 @@ def get_db():
     finally:
         conn.close()
 
+@contextmanager
+def get_db_context():
+    """Context manager wrapper for manual script usage (init_db, seed_db)."""
+    # We use yield from to delegate to the generator
+    yield from get_db()
+
 def init_db():
     """Initialize the database schema with the core tables."""
-    with get_db() as conn:
+    with get_db_context() as conn:
         cursor = conn.cursor()
         
         # Create Teachers table
@@ -98,7 +103,7 @@ def init_db():
         conn.commit()
 
 def seed_db():
-    with get_db() as conn:
+    with get_db_context() as conn:
         cursor = conn.cursor()
 
         for student_id in STUDENT_IDS:
