@@ -5,11 +5,13 @@ from fastapi import HTTPException
 from mastery_service.models import (
     AttemptRequest, AttemptResponse, 
     MasteryItem, MasteryResponse,
-    NotificationItem, NotificationResponse
+    NotificationItem, NotificationResponse,
+    StudentSummary, RosterSummaryResponse
 )
 from mastery_service.utils import calculate_new_mastery
-from mastery_service.seed_data import SKILL_IDS
+from mastery_service.seed_data import SKILL_IDS, TEACHER_ROSTERS
 from mastery_service.ai_feedback import get_ai_feedback, AIFeedbackError
+from mastery_service.config import RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_WINDOW_HOURS, MILESTONE_THRESHOLD
 
 def process_attempt(db: sqlite3.Connection, student_id: str, request: AttemptRequest) -> AttemptResponse:
     """Handles the business logic and database orchestration for a new attempt."""
@@ -18,17 +20,18 @@ def process_attempt(db: sqlite3.Connection, student_id: str, request: AttemptReq
     if request.skill_id not in SKILL_IDS:
         raise HTTPException(status_code=400, detail="Invalid skill_id")
     
-    # 1. Rate Limiting Check (max 30 attempts per student per rolling 24 hours)
-    yesterday = int(time.time()) - (24 * 60 * 60)
+    # 1. Rate Limiting Check (configurable via config.py)
+    window_seconds = RATE_LIMIT_WINDOW_HOURS * 60 * 60
+    window_start = int(time.time()) - window_seconds
     count_row = db.execute(
         "SELECT COUNT(*) as c FROM attempts WHERE student_id = ? AND attempted_at >= ?",
-        (student_id, yesterday)
+        (student_id, window_start)
     ).fetchone()
     
-    if count_row["c"] >= 30:
+    if count_row["c"] >= RATE_LIMIT_MAX_ATTEMPTS:
         raise HTTPException(
             status_code=429, 
-            detail="Rate limit exceeded. You can only make 30 attempts per rolling 24 hours."
+            detail=f"Rate limit exceeded. You can only make {RATE_LIMIT_MAX_ATTEMPTS} attempts per rolling {RATE_LIMIT_WINDOW_HOURS} hours."
         )
     row = db.execute(
         "SELECT score FROM mastery WHERE student_id = ? AND skill_id = ?",
@@ -51,6 +54,15 @@ def process_attempt(db: sqlite3.Connection, student_id: str, request: AttemptReq
         """,
         (student_id, request.skill_id, new_score)
     )
+
+    if new_score >= MILESTONE_THRESHOLD:
+        db.execute(
+            """
+            INSERT OR IGNORE INTO notifications (student_id, skill_id, milestone)
+            VALUES (?, ?, ?)
+            """,
+            (student_id, request.skill_id, MILESTONE_THRESHOLD)
+        )
 
     # Commit early to release the SQLite write lock before the slow AI call!
     db.commit()
@@ -98,6 +110,38 @@ def get_student_notifications(db: sqlite3.Connection, student_id: str) -> Notifi
         for row in rows
     ]
     
-    status = "Records found" if items else "No records yet"
-    
+    status = "records found" if items else "No records yet"
     return NotificationResponse(status=status, data=items)
+
+def get_roster_summary(db: sqlite3.Connection, teacher_id: str, limit: int) -> RosterSummaryResponse:
+    """Gets the roster summary for a teacher, sorted by lowest average mastery."""
+    roster = TEACHER_ROSTERS.get(teacher_id, [])
+    if not roster:
+        return RosterSummaryResponse(status="No records yet", data=[])
+    
+    placeholders = ",".join(["?"] * len(roster))
+    
+    # We query the mastery table for all students in the roster
+    # Grouping by student_id lets us calculate their average score across all skills
+    query = f"""
+        SELECT student_id, AVG(score) as average_mastery, COUNT(skill_id) as skills_attempted
+        FROM mastery 
+        WHERE student_id IN ({placeholders})
+        GROUP BY student_id
+        ORDER BY average_mastery ASC
+        LIMIT ?
+    """
+    
+    params = tuple(roster) + (limit,)
+    rows = db.execute(query, params).fetchall()
+    
+    data = []
+    for row in rows:
+        data.append(StudentSummary(
+            student_id=row["student_id"],
+            average_mastery=round(row["average_mastery"], 2),
+            skills_attempted=row["skills_attempted"]
+        ))
+        
+    status = "records found" if data else "records not found"
+    return RosterSummaryResponse(status=status, data=data)
