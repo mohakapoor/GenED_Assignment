@@ -2,20 +2,19 @@ from fastapi import HTTPException, Depends, Path
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from mastery_service.seed_data import TOKENS, TEACHER_ROSTERS
 
+from mastery_service.config import EMA_ALPHA
+
 def calculate_new_mastery(current_score: float, is_correct: bool) -> float:
     """
-    Placeholder mastery formula:
-    - Adds 10 points if the attempt is correct.
-    - Subtracts 2 points if the attempt is incorrect.
-    - Clamps the final score between 0.0 and 100.0.
+    Calculates the new mastery score using an Exponential Moving Average (EMA).
+    Formula: (current_score * (1 - EMA_ALPHA)) + (attempt_score * EMA_ALPHA)
+    This smoothly approaches 100 asymptotically, self-balances, and requires no history state!
     """
-    if is_correct:
-        new_score = current_score + 10.0
-    else:
-        new_score = current_score - 2.0
+    attempt_score = 100.0 if is_correct else 0.0
+    new_score = (current_score * (1.0 - EMA_ALPHA)) + (attempt_score * EMA_ALPHA)
         
-    # Clamp between 0 and 100 so we don't violate the DB constraint
-    return max(0.0, min(100.0, new_score))
+    # Clamp between 0 and 100 and round to 2 decimals for clean storage
+    return max(0.0, min(100.0, round(new_score, 2)))
 
 security = HTTPBearer()
 
