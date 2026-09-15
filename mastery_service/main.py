@@ -35,26 +35,24 @@ Everything below this docstring is scaffolding, not a solution — feel free
 to delete, restructure, or heavily rewrite it.
 """
 
-from fastapi import FastAPI, Header, HTTPException, Depends
+from fastapi import FastAPI, Header, HTTPException, Depends, Query
 import uvicorn
 import sqlite3
+from typing import List
 
 from mastery_service.utils import (
     get_current_identity, 
     verify_access, 
-    verify_student_only_access
+    verify_student_only_access,
+    verify_teacher_only_access
 )
-from typing import List
-from mastery_service.database import get_db
+from mastery_service.database import get_db, init_db
 from mastery_service.models import (
     AttemptRequest, AttemptResponse, 
-    MasteryResponse, NotificationResponse
+    MasteryResponse, NotificationResponse,
+    RosterSummaryResponse
 )
-from mastery_service.endpoints import (
-    process_attempt, 
-    get_student_mastery,
-    get_student_notifications
-)
+import mastery_service.endpoints as endpoints
 
 app = FastAPI(title="GenEd Mastery Service — Take-Home")
 
@@ -81,21 +79,31 @@ def create_attempt(
     student_id: str = Depends(verify_student_only_access),
     db: sqlite3.Connection = Depends(get_db)
 ):
-    return process_attempt(db, student_id, request)
+    return endpoints.process_attempt(db, student_id, request)
 
 @app.get("/students/{student_id}/mastery", response_model=MasteryResponse)
 def read_mastery(
     student_id: str = Depends(verify_access),
     db: sqlite3.Connection = Depends(get_db)
 ):
-    return get_student_mastery(db, student_id)
+    return endpoints.get_student_mastery(db, student_id)
 
 @app.get("/notifications/{student_id}", response_model=NotificationResponse)
-def read_notifications(
+def get_student_notifications(
     student_id: str = Depends(verify_access),
     db: sqlite3.Connection = Depends(get_db)
 ):
-    return get_student_notifications(db, student_id)
+    """Fetch milestone notifications for a student."""
+    return endpoints.get_student_notifications(db, student_id)
+
+@app.get("/teachers/{teacher_id}/summary", response_model=RosterSummaryResponse)
+def get_teacher_roster_summary(
+    teacher_id: str = Depends(verify_teacher_only_access), 
+    limit: int = Query(5, ge=1, le=50),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """Fetch a paginated summary of a teacher's roster, sorted by lowest mastery first."""
+    return endpoints.get_roster_summary(db, teacher_id, limit)
 
 if __name__ == "__main__":
     uvicorn.run("mastery_service.main:app", host="127.0.0.1", port=8000, reload=True)
