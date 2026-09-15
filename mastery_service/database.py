@@ -37,10 +37,48 @@ def init_db():
             )
         """)
         
+        # Create Skills table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS skills (
+                id TEXT PRIMARY KEY
+            )
+        """)
+        
+        # Create Mastery table (Composite Primary Key)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS mastery (
+                student_id TEXT,
+                skill_id TEXT,
+                score REAL,
+                PRIMARY KEY (student_id, skill_id)
+            )
+        """)
+        
+        # Create Attempts table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id TEXT,
+                skill_id TEXT,
+                is_correct BOOLEAN,
+                attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Create Notifications table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id TEXT,
+                skill_id TEXT,
+                milestone INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         # Commit the transaction
         conn.commit()
 
 if __name__ == "__main__":
-    # A simple way to test the DB creation directly
     init_db()
     print(f"Database initialized at {DB_PATH}")
