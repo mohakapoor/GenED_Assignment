@@ -2,6 +2,8 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
+from mastery_service.seed_data import STUDENT_IDS, SKILL_IDS, TEACHER_ROSTERS
+
 # Store the database file in the mastery_service directory
 DB_PATH = Path(__file__).parent / "mastery.db"
 
@@ -93,6 +95,24 @@ def init_db():
         # Commit the transaction
         conn.commit()
 
+def seed_db():
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        for student_id in STUDENT_IDS:
+            cursor.execute("INSERT OR IGNORE INTO students (id) VALUES (?)", (student_id,))
+            
+        # Insert Teachers
+        for teacher_id in TEACHER_ROSTERS.keys():
+            cursor.execute("INSERT OR IGNORE INTO teachers (id) VALUES (?)", (teacher_id,))
+            
+        # Insert Skills
+        for skill_id in SKILL_IDS:
+            cursor.execute("INSERT OR IGNORE INTO skills (id) VALUES (?)", (skill_id,))
+            
+        conn.commit()
+
 if __name__ == "__main__":
     init_db()
-    print(f"Database initialized at {DB_PATH}")
+    seed_db()
+    print(f"Database initialized and seeded at {DB_PATH}")
