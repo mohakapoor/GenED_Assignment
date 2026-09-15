@@ -11,6 +11,8 @@ def get_db():
     # check_same_thread=False is needed for FastAPI since it might use 
     # different threads for different requests
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    # Enable foreign key constraint enforcement
+    conn.execute("PRAGMA foreign_keys = ON;")
     # This allows us to access columns by name (e.g., row['id'])
     conn.row_factory = sqlite3.Row
     try:
@@ -50,7 +52,9 @@ def init_db():
                 student_id TEXT,
                 skill_id TEXT,
                 score REAL,
-                PRIMARY KEY (student_id, skill_id)
+                PRIMARY KEY (student_id, skill_id),
+                FOREIGN KEY (student_id) REFERENCES students(id),
+                FOREIGN KEY (skill_id) REFERENCES skills(id)
             )
         """)
         
@@ -61,7 +65,9 @@ def init_db():
                 student_id TEXT,
                 skill_id TEXT,
                 is_correct BOOLEAN,
-                attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (student_id) REFERENCES students(id),
+                FOREIGN KEY (skill_id) REFERENCES skills(id)
             )
         """)
         
@@ -72,8 +78,16 @@ def init_db():
                 student_id TEXT,
                 skill_id TEXT,
                 milestone INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (student_id) REFERENCES students(id),
+                FOREIGN KEY (skill_id) REFERENCES skills(id)
             )
+        """)
+        
+        # Create composite index for rate limiting queries
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_attempts_student_time 
+            ON attempts (student_id, attempted_at)
         """)
         
         # Commit the transaction
