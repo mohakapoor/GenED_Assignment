@@ -48,3 +48,16 @@ def verify_access(
         raise HTTPException(status_code=403, detail="Unknown role.")
         
     return student_id
+
+def verify_student_only_access(
+    student_id: str = Path(...), 
+    identity: dict = Depends(get_current_identity)
+) -> str:
+    """Verifies that the current user is exclusively the student_id in the path."""
+    role = identity["role"]
+    user_id = identity["user_id"]
+    
+    if role != "STUDENT" or user_id != student_id:
+        raise HTTPException(status_code=403, detail="Only the student can submit attempts for their own account.")
+        
+    return student_id
