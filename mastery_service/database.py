@@ -10,15 +10,16 @@ DB_PATH = Path(__file__).parent / "mastery.db"
 @contextmanager
 def get_db():
     """Provide a transactional scope around a series of database operations."""
-    # check_same_thread=False is needed for FastAPI since it might use 
-    # different threads for different requests
+    # check_same_thread=False 
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    # Enable foreign key constraint enforcement
     conn.execute("PRAGMA foreign_keys = ON;")
-    # This allows us to access columns by name (e.g., row['id'])
     conn.row_factory = sqlite3.Row
     try:
         yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -116,4 +117,4 @@ def seed_db():
 if __name__ == "__main__":
     init_db()
     seed_db()
-    print(f"Database initialized and seeded at {DB_PATH}")
+    print(f"DB Initialized")
