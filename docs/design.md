@@ -2,31 +2,19 @@
 
 This document provides a comprehensive overview of the system architecture, abstractions, database schema, and endpoint workflows.
 
-## 1. System Overview & Abstractions
+## 1. How the Code is Organized
 
-The service follows a modular **Controller-Service-Repository** pattern adapted for a lightweight FastAPI application.
+The project is split into separate files so it's easy to read and maintain. 
 
-### Directory Structure & Responsibilities
-- **`main.py` (Controller/Router)**: 
-  - Purely responsible for HTTP routing and dependency injection.
-  - Exposes the endpoints and enforces top-level security (Auth Bearer tokens).
-  - Delegates all business logic to `endpoints.py`.
-- **`config.py` (Configuration)**:
-  - Centralizes all tunable business constants (e.g., rate limits, thresholds, EMA weights).
-- **`endpoints.py` (Service Layer)**:
-  - Houses the core business logic and database orchestration (e.g., `process_attempt`).
-  - Handles fetching data, computing mastery math, inserting DB records, and returning Pydantic responses.
-- **`database.py` (Repository/Infra)**:
-  - Manages SQLite connection setup and teardown.
-  - Provides the `get_db()` dependency which guarantees a strict transactional scope (commits on success, rolls back on exception).
-- **`utils.py` (Helpers)**:
-  - Contains reusable utilities such as authorization checkers (`verify_access`, `verify_student_only_access`) and math formulas (`calculate_new_mastery`).
-- **`models.py` (Schemas)**:
-  - Defines the Pydantic data structures for robust request validation and response formatting.
-- **`seed_data.py` (Configuration)**:
-  - Acts as the source of truth for mock tokens, teacher rosters, and skill IDs.
-- **`ai_feedback.py` (External Integrations)**:
-  - Stubs out the slow LLM generation required for returning attempt feedback.
+### What each file does:
+- **`main.py`**: The entry point. It sets up the web server, handles the incoming URLs, and checks that users have a valid token before letting them in.
+- **`config.py`**: Stores all our settings in one place (like the 30-attempt rate limit and the 80-point milestone threshold) so they are easy to change later.
+- **`endpoints.py`**: The brain of the app. This is where the actual work happens: doing the math for mastery scores and saving things to the database.
+- **`database.py`**: Handles talking to the SQLite database. It has a special `get_db()` function that ensures if a request crashes halfway through, any half-finished database saves are completely undone (rolled back).
+- **`utils.py`**: Helper functions, like the math formula for calculating the mastery score and the rules for who is allowed to access what data.
+- **`models.py`**: Defines the exact shape of the data we expect to receive and send out (like making sure an attempt has a `skill_id` and a boolean `is_correct`).
+- **`seed_data.py`**: Our fake data for testing, containing the mock teacher tokens, student rosters, and valid skill lists.
+- **`ai_feedback.py`**: A fake AI service that pretends to take a few seconds to write feedback for a student's attempt.
 
 ## 2. API Endpoints & Workflows
 
@@ -100,28 +88,28 @@ flowchart TD
     style Ret fill:#2ea44f,color:white
 ```
 
-**Purpose**: Retrieves all current mastery scores for a specific student.
-**Workflow**: Uses `verify_access` (Teachers and Students allowed) and queries the `mastery` table. Returns data wrapped in a `MasteryResponse` envelope pattern (`{"status": "...", "data": [...]}`). If no records exist, it returns an empty array with `"records not found"` status rather than a 404, representing a valid student with no data yet.
+**Purpose**: Gets all the mastery scores for a specific student.
+**How it works**: It checks that the user is allowed to view the data (either the student themselves, or their teacher). Then it fetches their scores from the `mastery` table. If the student hasn't done any work yet, it just returns an empty list instead of an error.
 
 ### `GET /notifications/{student_id}`
-**Purpose**: Retrieves all milestone notifications for a student.
-**Workflow**: Uses `verify_access` and queries the `notifications` table. Returns data wrapped in a `NotificationResponse` envelope pattern.
+**Purpose**: Gets all the milestone notifications for a student.
+**How it works**: Checks permissions, then grabs the student's alerts from the `notifications` table.
 
 ### Utility Endpoints
 - `GET /health` & `GET /api_name`: Basic connectivity checks.
 - `GET /identity`: Resolves the provided Bearer token into a `{role, user_id}` identity.
 - `GET /has_access/{student_id}`: Test endpoint to explicitly verify role-based access control rules.
 
-## 3. Database Architecture
+## 3. Database Safety Rules
 
-- **Transactional Scope**: All database interactions via the `get_db()` dependency operate within a strict transactional scope using FastAPI's native generator dependency injection. The generator yields the connection, automatically committing on success and rolling back if FastAPI throws an exception. This guarantees the atomic integrity of multi-step operations (e.g., updating mastery and recording a notification).
-- **Upserts**: Updating the `mastery` table leverages SQLite's native `INSERT ... ON CONFLICT DO UPDATE`. This safely creates or updates a student's mastery score in a single atomic query without deleting the underlying row history.
+- **Crash Protection (Rollbacks)**: We wrote the database connection in a way that groups all saves together. If the server crashes while saving an attempt, the database immediately undoes any partial saves. This means we never get stuck with corrupted or half-saved data.
+- **Smart Updates (Upserts)**: When we save a new mastery score, we use a database trick to say "If this student already has a score for this skill, just overwrite it. If they don't, create it." This prevents duplicate scores from piling up.
 
-## 4. Authorization & Security
+## 4. Security Rules
 
-- **Role-Based Access Control**: Enforced via FastAPI dependencies (`verify_access`). Students can only access their own `student_id`, while Teachers can access any `student_id` present in their assigned roster.
-- **Strict Write Access**: The `POST /attempts` endpoint is protected by a secondary `verify_student_only_access` dependency that explicitly prevents teachers from submitting attempts on a student's behalf.
-- **Anti-Enumeration**: Invalid or unassigned `student_id` requests yield a generic `403 Forbidden` rather than a `404 Not Found` to prevent attackers from mapping valid student IDs.
+- **Who can see what?**: Students are strictly locked to viewing their own data. Teachers can view data for any student assigned to their specific roster.
+- **Who can submit work?**: Only students are allowed to submit attempts. Teachers can view scores, but they cannot take a test on behalf of a student.
+- **Hiding valid IDs**: If someone tries to look up an invalid student ID, we return a generic "Forbidden" error rather than saying "Not Found". This stops hackers from guessing which student IDs are real.
 
 ## 5. Database Schema
 
@@ -202,12 +190,12 @@ Durably records when a student crosses a mastery threshold.
 | `created_at` | `INTEGER` | `DEFAULT (cast(strftime('%s','now') as int))` |
 *(Includes a `UNIQUE` constraint on `(student_id, skill_id, milestone)` to prevent duplicate milestone triggers.)*
 
-## 6. API Data Models
+## 6. API Data Shapes
 
-Pydantic schemas used to define and validate API shapes:
-- **`AttemptRequest`**: Incoming payload (`skill_id`, `is_correct`).
-- **`AttemptResponse`**: Outgoing result (`new_score`, `feedback`).
-- **`MasteryItem`**: Core structure for a single skill's mastery (`skill_id`, `score`).
-- **`MasteryResponse`**: Envelope wrapper for returning a list of `MasteryItem` objects (`status`, `data`).
-- **`NotificationItem`**: Core structure for milestone alerts (`id`, `skill_id`, `milestone`, `created_at`).
-- **`NotificationResponse`**: Envelope wrapper for returning a list of `NotificationItem` objects (`status`, `data`).
+We use strict templates (called Pydantic models) to make sure users always send us the right data:
+- **`AttemptRequest`**: What the student sends us (the skill they practiced, and if they got it right).
+- **`AttemptResponse`**: What we send back (their new score and the AI feedback).
+- **`MasteryItem`**: A single score for a specific skill.
+- **`MasteryResponse`**: A list of `MasteryItem` scores bundled together.
+- **`NotificationItem`**: A single milestone alert (like hitting 80 points).
+- **`NotificationResponse`**: A list of `NotificationItem` alerts bundled together.
