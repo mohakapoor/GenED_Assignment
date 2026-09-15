@@ -11,6 +11,8 @@ The service follows a modular **Controller-Service-Repository** pattern adapted 
   - Purely responsible for HTTP routing and dependency injection.
   - Exposes the endpoints and enforces top-level security (Auth Bearer tokens).
   - Delegates all business logic to `endpoints.py`.
+- **`config.py` (Configuration)**:
+  - Centralizes all tunable business constants (e.g., rate limits, thresholds, EMA weights).
 - **`endpoints.py` (Service Layer)**:
   - Houses the core business logic and database orchestration (e.g., `process_attempt`).
   - Handles fetching data, computing mastery math, inserting DB records, and returning Pydantic responses.
@@ -29,19 +31,75 @@ The service follows a modular **Controller-Service-Repository** pattern adapted 
 ## 2. API Endpoints & Workflows
 
 ### `POST /students/{student_id}/attempts`
+**Workflow Diagram**:
+```mermaid
+flowchart TD
+    Start([POST /attempts]) --> Auth{Verify Token}
+    
+    Auth -- Invalid --> E401[401 Unauthorized]
+    Auth -- Valid --> Val{Validate skill_id}
+    
+    Val -- Invalid --> E400[400 Bad Request]
+    Val -- Valid --> Rate{Check Rate Limit\n< 30 attempts in 24h?}
+    
+    Rate -- Exceeded --> E429[429 Too Many Requests]
+    Rate -- OK --> Fetch[(Fetch current_score\nfrom Mastery DB)]
+    
+    Fetch --> Calc[Calculate new_score\nusing EMA formula]
+    Calc --> InsAtt[(INSERT into attempts DB)]
+    InsAtt --> UpsMast[(UPSERT into mastery DB)]
+    
+    UpsMast --> Mile{new_score >= 80?}
+    Mile -- Yes --> InsNotif[(INSERT OR IGNORE\ninto notifications DB)]
+    InsNotif --> Commit[COMMIT DB Transaction]
+    Mile -- No --> Commit
+    
+    Commit --> AI[Fetch AI Feedback]
+    AI --> Success{AI Success?}
+    
+    Success -- Yes --> Ret[Return 200 OK\nwith new_score & feedback]
+    Success -- No/Timeout --> Fallback[Return 200 OK\nwith fallback string]
+    Fallback --> Ret
+    
+    style Start fill:#2ea44f,color:white,stroke:#fff
+    style Auth fill:#0366d6,color:white
+    style Val fill:#0366d6,color:white
+    style Rate fill:#0366d6,color:white
+    style Mile fill:#0366d6,color:white
+    style Success fill:#0366d6,color:white
+    style E401 fill:#cb2431,color:white
+    style E400 fill:#cb2431,color:white
+    style E429 fill:#cb2431,color:white
+    style Ret fill:#2ea44f,color:white
+```
+
 **Purpose**: Submits a new learning attempt for a student.
 **Workflow (`process_attempt`)**:
 1. **Auth Verification**: Uses `verify_student_only_access` to ensure the caller is a STUDENT and their ID matches the URL.
 2. **Skill Validation**: Checks if the requested `skill_id` exists in `SKILL_IDS`. Returns 400 immediately if invalid.
 3. **Rate Limiting**: Checks if the student has >= 30 attempts in the rolling 24 hours (queries attempts table) and returns 429 if so. Executed after skill validation so bad inputs don't count.
-3. **Mastery Fetch**: Queries the `mastery` table to get the student's current score (defaults to 0.0).
-4. **Mastery Calculation**: Computes the new score via `calculate_new_mastery`.
-5. **Ledger Insert**: Saves the attempt into the `attempts` table.
-6. **Mastery Upsert**: Uses `ON CONFLICT DO UPDATE` to save the new score into the `mastery` table.
-7. *(Pending)* **Milestones**: Check if score crossed an 80+ threshold and insert into `notifications`.
-8. **Feedback**: Call `ai_feedback.py` in the background (gracefully falling back if it fails).
+4. **Mastery Fetch**: Queries the `mastery` table to get the student's current score (defaults to 0.0).
+5. **Mastery Calculation**: Computes the new score via `calculate_new_mastery`.
+6. **Ledger Insert**: Saves the attempt into the `attempts` table.
+7. **Mastery Upsert**: Uses `ON CONFLICT DO UPDATE` to save the new score into the `mastery` table.
+8. **Milestones**: Checks if `new_score >= 80` and uses `INSERT OR IGNORE` to atomically save a notification without duplicating.
+9. **Feedback**: Call `ai_feedback.py` in the background (gracefully falling back if it fails).
 
 ### `GET /students/{student_id}/mastery`
+**Workflow Diagram**:
+```mermaid
+flowchart TD
+    Start([GET /mastery]) --> Auth{Verify Token}
+    Auth -- Invalid --> E401[401 Unauthorized]
+    Auth -- Valid --> Fetch[(SELECT * FROM mastery\nWHERE student_id = ?)]
+    Fetch --> Ret[Return 200 OK\nwith status & data array]
+    
+    style Start fill:#2ea44f,color:white,stroke:#fff
+    style Auth fill:#0366d6,color:white
+    style E401 fill:#cb2431,color:white
+    style Ret fill:#2ea44f,color:white
+```
+
 **Purpose**: Retrieves all current mastery scores for a specific student.
 **Workflow**: Uses `verify_access` (Teachers and Students allowed) and queries the `mastery` table. Returns data wrapped in a `MasteryResponse` envelope pattern (`{"status": "...", "data": [...]}`). If no records exist, it returns an empty array with `"records not found"` status rather than a 404, representing a valid student with no data yet.
 
@@ -68,6 +126,47 @@ The service follows a modular **Controller-Service-Repository** pattern adapted 
 ## 5. Database Schema
 
 The service uses SQLite for persistence. Dimension tables (`students` and `skills`) are pre-populated using the `seed_db()` script based on `seed_data.py`.
+
+### Entity-Relationship Diagram (ERD)
+```mermaid
+erDiagram
+    students ||--o{ attempts : "makes"
+    students ||--o{ mastery : "achieves"
+    students ||--o{ notifications : "receives"
+    skills ||--o{ attempts : "has"
+    skills ||--o{ mastery : "tracked_in"
+    skills ||--o{ notifications : "triggers"
+    teachers ||--o{ students : "teaches (via config)"
+
+    students {
+        string id PK
+    }
+    teachers {
+        string id PK
+    }
+    skills {
+        string id PK
+    }
+    mastery {
+        string student_id PK, FK
+        string skill_id PK, FK
+        float score
+    }
+    attempts {
+        int id PK
+        string student_id FK
+        string skill_id FK
+        boolean is_correct
+        int attempted_at
+    }
+    notifications {
+        int id PK
+        string student_id FK
+        string skill_id FK
+        int milestone
+        int created_at
+    }
+```
 
 ### 1. `teachers`, `students`, `skills`
 Simple dimension tables with an `id TEXT PRIMARY KEY`.
