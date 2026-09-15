@@ -51,9 +51,9 @@ def init_db():
         # Create Mastery table (Composite Primary Key)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS mastery (
-                student_id TEXT,
-                skill_id TEXT,
-                score REAL,
+                student_id TEXT NOT NULL,
+                skill_id TEXT NOT NULL,
+                score REAL NOT NULL DEFAULT 0.0 CHECK (score >= 0 AND score <= 100),
                 PRIMARY KEY (student_id, skill_id),
                 FOREIGN KEY (student_id) REFERENCES students(id),
                 FOREIGN KEY (skill_id) REFERENCES skills(id)
@@ -64,9 +64,9 @@ def init_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS attempts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                student_id TEXT,
-                skill_id TEXT,
-                is_correct BOOLEAN,
+                student_id TEXT NOT NULL,
+                skill_id TEXT NOT NULL,
+                is_correct BOOLEAN NOT NULL,
                 attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (student_id) REFERENCES students(id),
                 FOREIGN KEY (skill_id) REFERENCES skills(id)
@@ -77,12 +77,13 @@ def init_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS notifications (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                student_id TEXT,
-                skill_id TEXT,
-                milestone INTEGER,
+                student_id TEXT NOT NULL,
+                skill_id TEXT NOT NULL,
+                milestone INTEGER NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (student_id) REFERENCES students(id),
-                FOREIGN KEY (skill_id) REFERENCES skills(id)
+                FOREIGN KEY (skill_id) REFERENCES skills(id),
+                UNIQUE (student_id, skill_id, milestone)
             )
         """)
         
