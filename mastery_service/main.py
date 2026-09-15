@@ -39,10 +39,14 @@ from fastapi import FastAPI, Header, HTTPException, Depends
 import uvicorn
 import sqlite3
 
-from mastery_service.utils import get_current_identity, verify_access
+from mastery_service.utils import (
+    get_current_identity, 
+    verify_access, 
+    verify_student_only_access
+)
 from mastery_service.database import get_db
 from mastery_service.models import AttemptRequest, AttemptResponse
-from mastery_service.seed_data import SKILL_IDS
+from mastery_service.endpoints import process_attempt
 
 app = FastAPI(title="GenEd Mastery Service — Take-Home")
 
@@ -66,26 +70,10 @@ def test_has_access(student_id: str = Depends(verify_access)) -> dict:
 @app.post("/students/{student_id}/attempts", response_model=AttemptResponse)
 def create_attempt(
     request: AttemptRequest,
-    student_id: str = Depends(verify_access),
+    student_id: str = Depends(verify_student_only_access),
     db: sqlite3.Connection = Depends(get_db)
 ):
-    # 1. Validate skill_id
-    if request.skill_id not in SKILL_IDS:
-        raise HTTPException(status_code=400, detail="Invalid skill_id")
-
-    # 2. Insert the attempt (DB context manager automatically commits for us!)
-    db.execute(
-        "INSERT INTO attempts (student_id, skill_id, is_correct) VALUES (?, ?, ?)",
-        (student_id, request.skill_id, request.is_correct)
-    )
-
-    # 3. Return temporary response (Mastery check & feedback to be added later)
-    return AttemptResponse(
-        skill_id=request.skill_id,
-        is_correct=request.is_correct,
-        new_score=0.0,
-        feedback="Mastery calculation and AI feedback coming soon!"
-    )
+    return process_attempt(db, student_id, request)
 
 # TODO: GET /students/{student_id}/mastery
 # TODO: GET /notifications/{student_id}
