@@ -8,19 +8,24 @@ from mastery_service.models import (
     NotificationItem, NotificationResponse,
     StudentSummary, RosterSummaryResponse
 )
+
+
 from mastery_service.utils import calculate_new_mastery
 from mastery_service.seed_data import SKILL_IDS, TEACHER_ROSTERS
 from mastery_service.ai_feedback import get_ai_feedback, AIFeedbackError
+
 from mastery_service.config import RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_WINDOW_HOURS, MILESTONE_THRESHOLD
+
+
 
 def process_attempt(db: sqlite3.Connection, student_id: str, request: AttemptRequest) -> AttemptResponse:
     """Handles the business logic and database orchestration for a new attempt."""
 
-    # Validate input BEFORE doing any DB rate-limit checks
+    # Validation of skills
     if request.skill_id not in SKILL_IDS:
         raise HTTPException(status_code=400, detail="Invalid skill_id")
     
-    # 1. Rate Limiting Check (configurable via config.py)
+    # Rate Limiting Check
     window_seconds = RATE_LIMIT_WINDOW_HOURS * 60 * 60
     window_start = int(time.time()) - window_seconds
     count_row = db.execute(
@@ -64,16 +69,15 @@ def process_attempt(db: sqlite3.Connection, student_id: str, request: AttemptReq
             (student_id, request.skill_id, MILESTONE_THRESHOLD)
         )
 
-    # Commit early to release the SQLite write lock before the slow AI call!
+    # Commit early!
     db.commit()
 
-    # 6. Fetch AI Feedback
+
     try:
         feedback = get_ai_feedback(request.skill_id, request.is_correct)
     except AIFeedbackError:
         feedback = "AI feedback temporarily unavailable."
 
-    # 7. Return response
     return AttemptResponse(
         skill_id=request.skill_id,
         is_correct=request.is_correct,
@@ -83,6 +87,8 @@ def process_attempt(db: sqlite3.Connection, student_id: str, request: AttemptReq
 
 def get_student_mastery(db: sqlite3.Connection, student_id: str) -> MasteryResponse:
     """Retrieves all current mastery scores for a specific student."""
+
+
     rows = db.execute(
         "SELECT skill_id, score FROM mastery WHERE student_id = ?",
         (student_id,)
@@ -95,6 +101,8 @@ def get_student_mastery(db: sqlite3.Connection, student_id: str) -> MasteryRespo
 
 def get_student_notifications(db: sqlite3.Connection, student_id: str) -> NotificationResponse:
     """Retrieves all milestone notifications for a specific student."""
+
+
     rows = db.execute(
         "SELECT id, skill_id, milestone, created_at FROM notifications WHERE student_id = ?",
         (student_id,)
@@ -115,14 +123,14 @@ def get_student_notifications(db: sqlite3.Connection, student_id: str) -> Notifi
 
 def get_roster_summary(db: sqlite3.Connection, teacher_id: str, limit: int) -> RosterSummaryResponse:
     """Gets the roster summary for a teacher, sorted by lowest average mastery."""
+
+
     roster = TEACHER_ROSTERS.get(teacher_id, [])
     if not roster:
         return RosterSummaryResponse(status="No records yet", data=[])
     
     placeholders = ",".join(["?"] * len(roster))
     
-    # We query the mastery table for all students in the roster
-    # Grouping by student_id lets us calculate their average score across all skills
     query = f"""
         SELECT student_id, AVG(score) as average_mastery, COUNT(skill_id) as skills_attempted
         FROM mastery 

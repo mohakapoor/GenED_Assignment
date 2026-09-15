@@ -5,20 +5,17 @@ from mastery_service.seed_data import TOKENS, TEACHER_ROSTERS
 from mastery_service.config import EMA_ALPHA
 
 def calculate_new_mastery(current_score: float, is_correct: bool) -> float:
-    """
-    Calculates the new mastery score using an Exponential Moving Average (EMA).
-    Formula: (current_score * (1 - EMA_ALPHA)) + (attempt_score * EMA_ALPHA)
-    This smoothly approaches 100 asymptotically, self-balances, and requires no history state!
-    """
+
     attempt_score = 100.0 if is_correct else 0.0
     new_score = (current_score * (1.0 - EMA_ALPHA)) + (attempt_score * EMA_ALPHA)
         
-    return max(0.0, min(100.0, round(new_score, 2)))
+    return new_score
 
 security = HTTPBearer()
 
 def get_current_identity(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     """Resolve the Authorization header into {"role", "user_id"}."""
+    
     token = credentials.credentials
     identity = TOKENS.get(token)
     if identity is None:
