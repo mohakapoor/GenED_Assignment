@@ -73,7 +73,7 @@ def init_db():
                 student_id TEXT NOT NULL,
                 skill_id TEXT NOT NULL,
                 is_correct BOOLEAN NOT NULL,
-                attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                attempted_at INTEGER DEFAULT (cast(strftime('%s','now') as int)),
                 FOREIGN KEY (student_id) REFERENCES students(id),
                 FOREIGN KEY (skill_id) REFERENCES skills(id)
             )
@@ -86,7 +86,7 @@ def init_db():
                 student_id TEXT NOT NULL,
                 skill_id TEXT NOT NULL,
                 milestone INTEGER NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at INTEGER DEFAULT (cast(strftime('%s','now') as int)),
                 FOREIGN KEY (student_id) REFERENCES students(id),
                 FOREIGN KEY (skill_id) REFERENCES skills(id),
                 UNIQUE (student_id, skill_id, milestone)
