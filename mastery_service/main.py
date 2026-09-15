@@ -35,31 +35,70 @@ Everything below this docstring is scaffolding, not a solution — feel free
 to delete, restructure, or heavily rewrite it.
 """
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Depends, Path
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import uvicorn
 
-from mastery_service.seed_data import TOKENS
+from mastery_service.seed_data import TOKENS, TEACHER_ROSTERS
 
 app = FastAPI(title="GenEd Mastery Service — Take-Home")
 
+security = HTTPBearer()
 
-def get_current_identity(authorization: str = Header(default="")) -> dict:
+def get_current_identity(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     """Resolve the Authorization header into {"role", "user_id"}.
 
     This is deliberately trivial — see seed_data.py for how the token map
     works. Raise HTTPException(401) for a missing/unknown token.
     """
-    token = authorization.removeprefix("Bearer ").strip()
+    token = credentials.credentials
     identity = TOKENS.get(token)
     if identity is None:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
     return identity
 
+def verify_access(
+    student_id: str = Path(...), 
+    identity: dict = Depends(get_current_identity)
+) -> str:
+    """Verifies the current user is allowed to access data for student_id."""
+    role = identity["role"]
+    user_id = identity["user_id"]
+    
+    if role == "STUDENT":
+        if user_id != student_id:
+            raise HTTPException(status_code=403, detail="You can only view your own data.")
+            
+    elif role == "TEACHER":
+        roster = TEACHER_ROSTERS.get(user_id, [])
+        if student_id not in roster:
+            raise HTTPException(status_code=403, detail="Student not in your roster.")
+            
+    else:
+        raise HTTPException(status_code=403, detail="Unknown role.")
+        
+    return student_id
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
 
+@app.get("/api_name")
+def api_name() -> dict:
+    return {"name": "GenEd Mastery Service"}
+
+
+@app.get("/identity")
+def identity(identity: dict = Depends(get_current_identity)) -> dict:
+    return identity
+
+@app.get("/has_access/{student_id}")
+def test_has_access(student_id: str = Depends(verify_access)) -> dict:
+    return {"message": f"You have access to student: {student_id}"}
 
 # TODO: POST /students/{student_id}/attempts
 # TODO: GET /students/{student_id}/mastery
 # TODO: GET /notifications/{student_id}
+
+if __name__ == "__main__":
+    uvicorn.run("mastery_service.main:app", host="127.0.0.1", port=8000, reload=True)
