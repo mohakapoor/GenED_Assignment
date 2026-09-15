@@ -32,22 +32,22 @@ The service follows a modular **Controller-Service-Repository** pattern adapted 
 **Purpose**: Submits a new learning attempt for a student.
 **Workflow (`process_attempt`)**:
 1. **Auth Verification**: Uses `verify_student_only_access` to ensure the caller is a STUDENT and their ID matches the URL.
-2. **Skill Validation**: Checks if the requested `skill_id` exists in `SKILL_IDS`.
+2. **Skill Validation**: Checks if the requested `skill_id` exists in `SKILL_IDS`. Returns 400 immediately if invalid.
+3. **Rate Limiting**: Checks if the student has >= 30 attempts in the rolling 24 hours (queries attempts table) and returns 429 if so. Executed after skill validation so bad inputs don't count.
 3. **Mastery Fetch**: Queries the `mastery` table to get the student's current score (defaults to 0.0).
 4. **Mastery Calculation**: Computes the new score via `calculate_new_mastery`.
 5. **Ledger Insert**: Saves the attempt into the `attempts` table.
 6. **Mastery Upsert**: Uses `ON CONFLICT DO UPDATE` to save the new score into the `mastery` table.
-7. *(Pending)* **Rate Limiting**: Check if >5 attempts today.
-8. *(Pending)* **Milestones**: Check if score crossed an 80+ threshold and insert into `notifications`.
-9. *(Pending)* **Feedback**: Call `ai_feedback.py` in the background.
+7. *(Pending)* **Milestones**: Check if score crossed an 80+ threshold and insert into `notifications`.
+8. **Feedback**: Call `ai_feedback.py` in the background (gracefully falling back if it fails).
 
-### `GET /students/{student_id}/mastery` (Pending)
+### `GET /students/{student_id}/mastery`
 **Purpose**: Retrieves all current mastery scores for a specific student.
-**Workflow**: Uses `verify_access` (Teachers and Students allowed) and queries the `mastery` table.
+**Workflow**: Uses `verify_access` (Teachers and Students allowed) and queries the `mastery` table. Returns data wrapped in a `MasteryResponse` envelope pattern (`{"status": "...", "data": [...]}`). If no records exist, it returns an empty array with `"records not found"` status rather than a 404, representing a valid student with no data yet.
 
-### `GET /notifications/{student_id}` (Pending)
+### `GET /notifications/{student_id}`
 **Purpose**: Retrieves all milestone notifications for a student.
-**Workflow**: Uses `verify_access` and queries the `notifications` table.
+**Workflow**: Uses `verify_access` and queries the `notifications` table. Returns data wrapped in a `NotificationResponse` envelope pattern.
 
 ### Utility Endpoints
 - `GET /health` & `GET /api_name`: Basic connectivity checks.
@@ -89,7 +89,7 @@ Ledger of every attempt. Used for historical tracking and rate-limiting.
 | `student_id` | `TEXT` | `NOT NULL` |
 | `skill_id` | `TEXT` | `NOT NULL` |
 | `is_correct` | `BOOLEAN` | `NOT NULL` |
-| `attempted_at`| `TIMESTAMP` | `DEFAULT CURRENT_TIMESTAMP` |
+| `attempted_at`| `INTEGER` | `DEFAULT (cast(strftime('%s','now') as int))` |
 *(Includes index `idx_attempts_student_time` on `(student_id, attempted_at)` to optimize rate limits.)*
 
 ### 4. `notifications`
@@ -100,7 +100,7 @@ Durably records when a student crosses a mastery threshold.
 | `student_id` | `TEXT` | `NOT NULL` |
 | `skill_id` | `TEXT` | `NOT NULL` |
 | `milestone` | `INTEGER` | `NOT NULL` (e.g. 80) |
-| `created_at` | `TIMESTAMP` | `DEFAULT CURRENT_TIMESTAMP` |
+| `created_at` | `INTEGER` | `DEFAULT (cast(strftime('%s','now') as int))` |
 *(Includes a `UNIQUE` constraint on `(student_id, skill_id, milestone)` to prevent duplicate milestone triggers.)*
 
 ## 6. API Data Models
@@ -108,5 +108,7 @@ Durably records when a student crosses a mastery threshold.
 Pydantic schemas used to define and validate API shapes:
 - **`AttemptRequest`**: Incoming payload (`skill_id`, `is_correct`).
 - **`AttemptResponse`**: Outgoing result (`new_score`, `feedback`).
-- **`MasteryItem`**: Outgoing payload for mastery (`skill_id`, `score`).
-- **`NotificationItem`**: Outgoing payload for alerts (`id`, `skill_id`, `milestone`, `created_at`).
+- **`MasteryItem`**: Core structure for a single skill's mastery (`skill_id`, `score`).
+- **`MasteryResponse`**: Envelope wrapper for returning a list of `MasteryItem` objects (`status`, `data`).
+- **`NotificationItem`**: Core structure for milestone alerts (`id`, `skill_id`, `milestone`, `created_at`).
+- **`NotificationResponse`**: Envelope wrapper for returning a list of `NotificationItem` objects (`status`, `data`).
