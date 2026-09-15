@@ -35,49 +35,16 @@ Everything below this docstring is scaffolding, not a solution — feel free
 to delete, restructure, or heavily rewrite it.
 """
 
-from fastapi import FastAPI, Header, HTTPException, Depends, Path
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import FastAPI, Header, HTTPException, Depends
 import uvicorn
+import sqlite3
 
-from mastery_service.seed_data import TOKENS, TEACHER_ROSTERS
+from mastery_service.utils import get_current_identity, verify_access
+from mastery_service.database import get_db
+from mastery_service.models import AttemptRequest, AttemptResponse
+from mastery_service.seed_data import SKILL_IDS
 
 app = FastAPI(title="GenEd Mastery Service — Take-Home")
-
-security = HTTPBearer()
-
-def get_current_identity(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    """Resolve the Authorization header into {"role", "user_id"}.
-
-    This is deliberately trivial — see seed_data.py for how the token map
-    works. Raise HTTPException(401) for a missing/unknown token.
-    """
-    token = credentials.credentials
-    identity = TOKENS.get(token)
-    if identity is None:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
-    return identity
-
-def verify_access(
-    student_id: str = Path(...), 
-    identity: dict = Depends(get_current_identity)
-) -> str:
-    """Verifies the current user is allowed to access data for student_id."""
-    role = identity["role"]
-    user_id = identity["user_id"]
-    
-    if role == "STUDENT":
-        if user_id != student_id:
-            raise HTTPException(status_code=403, detail="You can only view your own data.")
-            
-    elif role == "TEACHER":
-        roster = TEACHER_ROSTERS.get(user_id, [])
-        if student_id not in roster:
-            raise HTTPException(status_code=403, detail="Student not in your roster.")
-            
-    else:
-        raise HTTPException(status_code=403, detail="Unknown role.")
-        
-    return student_id
 
 @app.get("/health")
 def health() -> dict:
@@ -96,7 +63,30 @@ def identity(identity: dict = Depends(get_current_identity)) -> dict:
 def test_has_access(student_id: str = Depends(verify_access)) -> dict:
     return {"message": f"You have access to student: {student_id}"}
 
-# TODO: POST /students/{student_id}/attempts
+@app.post("/students/{student_id}/attempts", response_model=AttemptResponse)
+def create_attempt(
+    request: AttemptRequest,
+    student_id: str = Depends(verify_access),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    # 1. Validate skill_id
+    if request.skill_id not in SKILL_IDS:
+        raise HTTPException(status_code=400, detail="Invalid skill_id")
+
+    # 2. Insert the attempt (DB context manager automatically commits for us!)
+    db.execute(
+        "INSERT INTO attempts (student_id, skill_id, is_correct) VALUES (?, ?, ?)",
+        (student_id, request.skill_id, request.is_correct)
+    )
+
+    # 3. Return temporary response (Mastery check & feedback to be added later)
+    return AttemptResponse(
+        skill_id=request.skill_id,
+        is_correct=request.is_correct,
+        new_score=0.0,
+        feedback="Mastery calculation and AI feedback coming soon!"
+    )
+
 # TODO: GET /students/{student_id}/mastery
 # TODO: GET /notifications/{student_id}
 
