@@ -35,10 +35,9 @@ Everything below this docstring is scaffolding, not a solution — feel free
 to delete, restructure, or heavily rewrite it.
 """
 
-from fastapi import FastAPI, Header, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query
 import uvicorn
 import sqlite3
-from typing import List
 
 from mastery_service.utils import (
     get_current_identity, 

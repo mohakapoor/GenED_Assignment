@@ -13,6 +13,12 @@ pip install -e .
 
 ## Run
 
+First, initialize and seed the SQLite database with the mock data:
+```bash
+python -m mastery_service.database
+```
+
+Then, start the FastAPI server:
 ```bash
 uvicorn mastery_service.main:app --reload
 ```
@@ -22,7 +28,7 @@ Then visit http://127.0.0.1:8000/docs for the interactive API explorer.
 ## Test
 
 ```bash
-pytest
+pytest tests
 ```
 
 ## What's given vs. what you build

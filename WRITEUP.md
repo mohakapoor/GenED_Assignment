@@ -33,12 +33,13 @@ If it is slow student waits for the feedback, if it raises AIFeedbackError, endp
 
 Step by step:
 1. The attempt endpoint is called, it calculates the new score and saves it into the mastery table.
-2. If the server crashes before or during the INSERT INTO notifications query.
-3. Because all DB queries are warpped in the get_db() FastAPI dependency, the crash get intercepted.
-4. It htis the Exception block and executes conn.rollback().
-5. The mastery update and the attempts insert are intstantly reverted.
+2. The attempt insert, mastery upsert, and notification insert all happen inside a single SQLite transaction.
+3. I call db.commit() explicitly only after all three writes are done, so they are atomic.
+4. If the server crashes at any point before that commit, none of the writes are saved.
+5. If the server crashes before that commit, my Python except block doesn't save me, a real crash like an OOM kill or power loss won't run any Python code at all.
+6. What helps is SQLite itself, it keeps a journal of in-progress writes, and if a transaction was never committed, SQLite automatically discards it the next time anyone opens the database. So even without my code running, the data stays consistent.
 
-This makes the attempt, mastery update, and notification atomic: either all are committed or none are committed.
+The reason I commit explicitly inside the endpoint (before calling the AI) is so the slow get_ai_feedback() call doesn't hold my write transaction open for 0.5-5 seconds. By committing early, the student's data is safe and the database is free for other requests while we wait on the AI.
 
 
 
@@ -51,6 +52,8 @@ On Boundary like at attempt number the 30 the COUNT(*) would return 29 the check
 At attempt 31 the COUNT(*) will return 30. IT halts the process and throws 429 error.
 
 This rate check is implemented after Valdiation so entering bad or wrong skill id wont count in attempts.
+One concern is concurrency, two requests could both pass the rate check before either inserts. SQLite's single-writer lock makes this unlikely, but in production I could try SELECT ... FOR UPDATE.
+
 
 ## 5. If you had another 3 days
 

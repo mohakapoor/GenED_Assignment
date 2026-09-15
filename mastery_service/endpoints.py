@@ -60,7 +60,7 @@ def process_attempt(db: sqlite3.Connection, student_id: str, request: AttemptReq
         (student_id, request.skill_id, new_score)
     )
 
-    if new_score >= MILESTONE_THRESHOLD:
+    if new_score > MILESTONE_THRESHOLD:
         db.execute(
             """
             INSERT OR IGNORE INTO notifications (student_id, skill_id, milestone)
@@ -118,7 +118,7 @@ def get_student_notifications(db: sqlite3.Connection, student_id: str) -> Notifi
         for row in rows
     ]
     
-    status = "records found" if items else "No records yet"
+    status = "Records found" if items else "No records yet"
     return NotificationResponse(status=status, data=items)
 
 def get_roster_summary(db: sqlite3.Connection, teacher_id: str, limit: int) -> RosterSummaryResponse:
@@ -151,5 +151,5 @@ def get_roster_summary(db: sqlite3.Connection, teacher_id: str, limit: int) -> R
             skills_attempted=row["skills_attempted"]
         ))
         
-    status = "records found" if data else "records not found"
+    status = "Records found" if data else "No records yet"
     return RosterSummaryResponse(status=status, data=data)
