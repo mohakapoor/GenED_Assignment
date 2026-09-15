@@ -21,3 +21,11 @@ class NotificationItem(BaseModel):
     skill_id: str
     milestone: int
     created_at: datetime
+
+class MasteryResponse(BaseModel):
+    status: str
+    data: List[MasteryItem]
+
+class NotificationResponse(BaseModel):
+    status: str
+    data: List[NotificationItem]
