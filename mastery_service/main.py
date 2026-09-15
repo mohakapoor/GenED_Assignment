@@ -44,9 +44,17 @@ from mastery_service.utils import (
     verify_access, 
     verify_student_only_access
 )
+from typing import List
 from mastery_service.database import get_db
-from mastery_service.models import AttemptRequest, AttemptResponse
-from mastery_service.endpoints import process_attempt
+from mastery_service.models import (
+    AttemptRequest, AttemptResponse, 
+    MasteryResponse, NotificationResponse
+)
+from mastery_service.endpoints import (
+    process_attempt, 
+    get_student_mastery,
+    get_student_notifications
+)
 
 app = FastAPI(title="GenEd Mastery Service — Take-Home")
 
@@ -75,8 +83,19 @@ def create_attempt(
 ):
     return process_attempt(db, student_id, request)
 
-# TODO: GET /students/{student_id}/mastery
-# TODO: GET /notifications/{student_id}
+@app.get("/students/{student_id}/mastery", response_model=MasteryResponse)
+def read_mastery(
+    student_id: str = Depends(verify_access),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    return get_student_mastery(db, student_id)
+
+@app.get("/notifications/{student_id}", response_model=NotificationResponse)
+def read_notifications(
+    student_id: str = Depends(verify_access),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    return get_student_notifications(db, student_id)
 
 if __name__ == "__main__":
     uvicorn.run("mastery_service.main:app", host="127.0.0.1", port=8000, reload=True)

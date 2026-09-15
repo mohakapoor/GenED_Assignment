@@ -58,6 +58,6 @@ def verify_student_only_access(
     user_id = identity["user_id"]
     
     if role != "STUDENT" or user_id != student_id:
-        raise HTTPException(status_code=403, detail="Only the student can submit attempts for their own account.")
+        raise HTTPException(status_code=403, detail="You are not allowed to access this student's data.")
         
     return student_id
