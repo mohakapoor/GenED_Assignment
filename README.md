@@ -1,7 +1,8 @@
-# GenEd Take-Home — Starter
+# GenEd Mastery Service — Take-Home Submission
 
-The actual assignment is in `PROBLEM.md` (sent alongside this repo) — read
-that first. This README is just setup instructions.
+I've finished the assignment. The service implements all three required endpoints (attempts, mastery, notifications) plus a teacher roster summary as a stretch goal. See `WRITEUP.md` for my design decisions and trade-offs.
+
+Below is how to run it.
 
 ## Setup
 
