@@ -29,3 +29,12 @@ class MasteryResponse(BaseModel):
 class NotificationResponse(BaseModel):
     status: str
     data: List[NotificationItem]
+
+class StudentSummary(BaseModel):
+    student_id: str
+    average_mastery: float
+    skills_attempted: int
+
+class RosterSummaryResponse(BaseModel):
+    status: str
+    data: List[StudentSummary]
