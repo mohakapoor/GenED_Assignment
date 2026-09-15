@@ -20,7 +20,7 @@ class NotificationItem(BaseModel):
     id: int
     skill_id: str
     milestone: int
-    created_at: datetime
+    created_at: int
 
 class MasteryResponse(BaseModel):
     status: str
