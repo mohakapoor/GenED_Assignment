@@ -13,7 +13,6 @@ def calculate_new_mastery(current_score: float, is_correct: bool) -> float:
     attempt_score = 100.0 if is_correct else 0.0
     new_score = (current_score * (1.0 - EMA_ALPHA)) + (attempt_score * EMA_ALPHA)
         
-    # Clamp between 0 and 100 and round to 2 decimals for clean storage
     return max(0.0, min(100.0, round(new_score, 2)))
 
 security = HTTPBearer()
@@ -26,11 +25,15 @@ def get_current_identity(credentials: HTTPAuthorizationCredentials = Depends(sec
         raise HTTPException(status_code=401, detail="Invalid or missing token")
     return identity
 
+
+
+
+
 def verify_access(
     student_id: str = Path(...), 
     identity: dict = Depends(get_current_identity)
 ) -> str:
-    """Verifies the current user is allowed to access data for student_id."""
+
     role = identity["role"]
     user_id = identity["user_id"]
     
@@ -41,18 +44,30 @@ def verify_access(
     elif role == "TEACHER":
         roster = TEACHER_ROSTERS.get(user_id, [])
         if student_id not in roster:
-            raise HTTPException(status_code=403, detail="Student not in your roster.")
+            raise HTTPException(status_code=403, detail="Student not in your roster")
             
     else:
         raise HTTPException(status_code=403, detail="Unknown role.")
         
     return student_id
 
+def verify_teacher_only_access(
+    teacher_id: str = Path(...),
+    identity: dict = Depends(get_current_identity)
+) -> str:
+
+    if identity["role"] != "TEACHER":
+        raise HTTPException(status_code=403, detail="Only teachers can access this endpoint")
+    if identity["user_id"] != teacher_id:
+        raise HTTPException(status_code=403, detail="You can only access your own roster summary")
+    return identity["user_id"]
+    
+
 def verify_student_only_access(
     student_id: str = Path(...), 
     identity: dict = Depends(get_current_identity)
 ) -> str:
-    """Verifies that the current user is exclusively the student_id in the path."""
+
     role = identity["role"]
     user_id = identity["user_id"]
     
