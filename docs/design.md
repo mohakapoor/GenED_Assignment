@@ -80,7 +80,7 @@ flowchart TD
     Start([GET /mastery]) --> Auth{Verify Token}
     Auth -- Invalid --> E401[401 Unauthorized]
     Auth -- Valid --> Fetch[(SELECT * FROM mastery\nWHERE student_id = ?)]
-    Fetch --> Ret[Return 200 OK\nwith status & data array]
+    Fetch --> Ret[Return 200 OK\fnwith status & data array]
     
     style Start fill:#2ea44f,color:white,stroke:#fff
     style Auth fill:#0366d6,color:white

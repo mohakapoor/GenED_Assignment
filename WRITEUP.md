@@ -52,7 +52,7 @@ On the boundary, like at attempt number 30 the COUNT(*) would return 29, the che
 At attempt 31 the COUNT(*) will return 30. It halts the process and throws 429 error.
 
 This rate check is implemented after validation so entering bad or wrong skill id won't count in attempts.
-One concern is concurrency, two requests could both pass the rate check before either inserts. SQLite's single-writer lock makes this unlikely, but in production I could try SELECT ... FOR UPDATE.
+One concern is concurrency, two requests could both pass the rate check before either inserts. I could try SELECT ... FOR UPDATE.
 
 
 ## 5. If you had another 3 days
